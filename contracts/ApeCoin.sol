@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
@@ -9,8 +9,6 @@ contract ApeCoin is ERC20, ERC20Permit, ERC20Votes {
     constructor() ERC20("ApeCoin", "APE") ERC20Permit("ApeCoin") {
         _mint(msg.sender, 1000 * 10 ** decimals());
     }
-
-    // The following functions are overrides required by Solidity.
 
     function _afterTokenTransfer(
         address from,

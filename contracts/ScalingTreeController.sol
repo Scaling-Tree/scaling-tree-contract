@@ -2,9 +2,11 @@
 pragma solidity 0.8.18;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "./TreeNFT.sol";
+import "./interfaces/ITreeNFT.sol";
+import "./interfaces/IScalingTreeController.sol";
+import "./interfaces/ITreeAuditorRegistry.sol";
 
-contract ScalingTreeController {
+contract ScalingTreeController is IScalingTreeController {
     event TreeAdded(
         address indexed owner,
         address indexed nftAddress,
@@ -32,16 +34,11 @@ contract ScalingTreeController {
         uint256 treeNumber
     );
 
-    struct Tree {
-        address nftAddress;
-        uint256 tokenId;
-        bool isActive;
-    }
-
-    mapping(uint256 => Tree) public treeRecords;
-    mapping(uint256 => bool) public treeInitialized;
-    mapping(uint256 => address) public ownerOf;
-    TreeNFT public treeNFT;
+    mapping(uint256 => Tree) private _treeRecords;
+    mapping(uint256 => bool) private _treeInitialized;
+    mapping(uint256 => address) private _ownerOf;
+    ITreeNFT private _treeNFT;
+    ITreeAuditorRegistry private _auditorRegistry;
 
     modifier isTreeOwner(address _nftAddress, uint256 _tokenId) {
         require(
@@ -51,17 +48,18 @@ contract ScalingTreeController {
         _;
     }
 
-    constructor(address _treeNFT) {
-        _validateNFTContract(_treeNFT);
+    constructor(address treeNFT_, address auditorRegistry_) {
+        _validateNFTContract(treeNFT_);
 
-        treeNFT = TreeNFT(_treeNFT);
+        _treeNFT = ITreeNFT(treeNFT_);
+        _auditorRegistry = ITreeAuditorRegistry(auditorRegistry_);
     }
 
     function addNFT(
         address _nftAddress,
         uint256 _tokenId,
         uint256 _treeNumber
-    ) public returns (uint256) {
+    ) public override returns (uint256) {
         require(
             checkTreeOwner(address(0), _nftAddress, _tokenId),
             "Already has owner"
@@ -83,11 +81,11 @@ contract ScalingTreeController {
     function mintNFT(
         uint256 _treeNumber,
         string memory _uri
-    ) public returns (uint256) {
-        uint256 tokenId = treeNFT.safeMint(address(this), _uri);
-        uint256 treeId = _addTree(address(treeNFT), tokenId);
+    ) public override returns (uint256) {
+        uint256 tokenId = _treeNFT.safeMint(address(this), _uri);
+        uint256 treeId = _addTree(address(_treeNFT), tokenId);
 
-        emit TreeAdded(msg.sender, address(treeNFT), tokenId, _treeNumber);
+        emit TreeAdded(msg.sender, address(_treeNFT), tokenId, _treeNumber);
 
         return treeId;
     }
@@ -96,8 +94,11 @@ contract ScalingTreeController {
         address _nftAddress,
         uint256 _tokenId,
         uint256 _treeNumber
-    ) public returns (uint256) {
-        // require(isAuditor, "You are not an auditor");
+    ) public override returns (uint256) {
+        require(
+            _auditorRegistry.isAuditor(msg.sender),
+            "You are not an auditor"
+        );
         uint256 treeId = getTreeId(_nftAddress, _tokenId);
         require(
             !checkTreeOwner(address(0), _nftAddress, _tokenId),
@@ -111,10 +112,10 @@ contract ScalingTreeController {
         address _nftAddress,
         uint256 _tokenId,
         address to
-    ) public isTreeOwner(_nftAddress, _tokenId) {
+    ) public override isTreeOwner(_nftAddress, _tokenId) {
         require(to != address(0), "Cannot transfer to null address");
         uint256 treeId = getTreeId(_nftAddress, _tokenId);
-        ownerOf[treeId] = to;
+        _ownerOf[treeId] = to;
 
         emit TreeTransferred(msg.sender, to, _nftAddress, _tokenId);
     }
@@ -122,10 +123,10 @@ contract ScalingTreeController {
     function withdraw(
         address _nftAddress,
         uint256 _tokenId
-    ) public isTreeOwner(_nftAddress, _tokenId) returns (uint256) {
+    ) public override isTreeOwner(_nftAddress, _tokenId) returns (uint256) {
         uint256 treeId = getTreeId(_nftAddress, _tokenId);
-        treeRecords[treeId].isActive = false;
-        ownerOf[treeId] = address(0);
+        _treeRecords[treeId].isActive = false;
+        _ownerOf[treeId] = address(0);
 
         ERC721(_nftAddress).safeTransferFrom(
             address(this),
@@ -133,7 +134,7 @@ contract ScalingTreeController {
             _tokenId
         );
 
-        emit TreeWithdrew(msg.sender, address(treeNFT), _tokenId);
+        emit TreeWithdrew(msg.sender, address(_treeNFT), _tokenId);
 
         return treeId;
     }
@@ -141,8 +142,41 @@ contract ScalingTreeController {
     function getTreeId(
         address _nftAddress,
         uint256 _tokenId
-    ) public pure returns (uint256) {
+    ) public pure override returns (uint256) {
         return uint256(keccak256(abi.encode(_nftAddress, _tokenId)));
+    }
+
+    function checkTreeOwner(
+        address _owner,
+        address _nftAddress,
+        uint256 _tokenId
+    ) public view override returns (bool) {
+        uint256 treeId = getTreeId(_nftAddress, _tokenId);
+        return _ownerOf[treeId] == _owner;
+    }
+
+    function treeRecords(
+        uint256 _treeId
+    ) external view override returns (Tree memory) {
+        return _treeRecords[_treeId];
+    }
+
+    function treeInitialized(
+        uint256 _treeId
+    ) external view override returns (bool) {
+        return _treeInitialized[_treeId];
+    }
+
+    function ownerOf(uint256 _treeId) external view override returns (address) {
+        return _ownerOf[_treeId];
+    }
+
+    function treeNFT() external view override returns (address) {
+        return address(_treeNFT);
+    }
+
+    function auditorRegistry() external view override returns (address) {
+        return address(_auditorRegistry);
     }
 
     function _addTree(
@@ -150,29 +184,20 @@ contract ScalingTreeController {
         uint256 _tokenId
     ) internal returns (uint256) {
         uint256 treeId = getTreeId(_nftAddress, _tokenId);
-        bool isInitialized = treeInitialized[treeId];
+        bool isInitialized = _treeInitialized[treeId];
 
         if (!isInitialized) {
             Tree memory tree = Tree(_nftAddress, _tokenId, true);
 
-            treeRecords[treeId] = tree;
-            ownerOf[treeId] = msg.sender;
-            treeInitialized[treeId] = true;
+            _treeRecords[treeId] = tree;
+            _ownerOf[treeId] = msg.sender;
+            _treeInitialized[treeId] = true;
         } else {
-            ownerOf[treeId] = msg.sender;
-            treeRecords[treeId].isActive = true;
+            _ownerOf[treeId] = msg.sender;
+            _treeRecords[treeId].isActive = true;
         }
 
         return treeId;
-    }
-
-    function checkTreeOwner(
-        address _owner,
-        address _nftAddress,
-        uint256 _tokenId
-    ) public view returns (bool) {
-        uint256 treeId = getTreeId(_nftAddress, _tokenId);
-        return ownerOf[treeId] == _owner;
     }
 
     function _validateNFTContract(
