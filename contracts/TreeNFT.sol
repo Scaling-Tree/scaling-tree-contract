@@ -5,8 +5,9 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "./interfaces/ITreeNFT.sol";
 
-contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage {
+contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage, ITreeNFT {
     using Counters for Counters.Counter;
 
     Counters.Counter private _tokenIdCounter;
@@ -18,10 +19,10 @@ contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage {
         return "https://0xwa.run";
     }
 
-    function safeMint(address to, string memory uri) public returns (uint256) {
+    function safeMint(address to, string memory uri, bytes calldata data) public override returns (uint256) {
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
-        _safeMint(to, tokenId);
+        _safeMint(to, tokenId, data);
         _setTokenURI(tokenId, uri);
         return tokenId;
     }
@@ -45,13 +46,13 @@ contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage {
 
     function tokenURI(
         uint256 tokenId
-    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+    ) public view override(ITreeNFT, ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
 
     function supportsInterface(
         bytes4 interfaceId
-    ) public view override(ERC721, ERC721Enumerable) returns (bool) {
+    ) public view override(ITreeNFT, ERC721, ERC721Enumerable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 }

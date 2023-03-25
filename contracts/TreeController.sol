@@ -2,16 +2,30 @@
 pragma solidity 0.8.18;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "./interfaces/ITreeNFT.sol";
-import "./interfaces/IScalingTreeController.sol";
+import "./interfaces/ITreeController.sol";
 import "./interfaces/ITreeAuditorRegistry.sol";
 
-contract ScalingTreeController is IScalingTreeController {
+contract TreeController is ITreeController, IERC721Receiver {
     event TreeAdded(
         address indexed owner,
         address indexed nftAddress,
         uint256 tokenId,
         uint256 treeNumber
+    );
+
+    event TreeApproved(
+        address indexed owner,
+        address indexed operator,
+        address indexed nftAddress,
+        uint256 tokenId
+    );
+
+    event ApprovedForAll(
+        address indexed owner,
+        address indexed operator,
+        bool indexed approved
     );
 
     event TreeTransferred(
@@ -40,6 +54,9 @@ contract ScalingTreeController is IScalingTreeController {
     ITreeNFT private _treeNFT;
     ITreeAuditorRegistry private _auditorRegistry;
 
+    mapping(uint256 => address) private _treeApprovals;
+    mapping(address => mapping(address => bool)) private _operatorApprovals;
+
     modifier isTreeOwner(address _nftAddress, uint256 _tokenId) {
         require(
             checkTreeOwner(msg.sender, _nftAddress, _tokenId),
@@ -48,11 +65,39 @@ contract ScalingTreeController is IScalingTreeController {
         _;
     }
 
-    constructor(address treeNFT_, address auditorRegistry_) {
-        _validateNFTContract(treeNFT_);
+    modifier isApproved(
+        address _nftAddress,
+        uint256 _tokenId,
+        address _owner
+    ) {
+        require(
+            checkTreeOwner(msg.sender, _nftAddress, _tokenId) ||
+                getApproved(_nftAddress, _tokenId) == msg.sender ||
+                isApprovedForAll(_owner, msg.sender),
+            "Is not tree owner nor approved operator"
+        );
+        _;
+    }
 
+    constructor(address treeNFT_, address auditorRegistry_) {
         _treeNFT = ITreeNFT(treeNFT_);
         _auditorRegistry = ITreeAuditorRegistry(auditorRegistry_);
+    }
+
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    ) external pure returns (bytes4) {
+        // unused variables
+        operator;
+        from;
+        tokenId;
+
+        bool isSafe = abi.decode(data, (bool));
+        require(isSafe, "Do not safe transfer");
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     function addNFT(
@@ -68,7 +113,8 @@ contract ScalingTreeController is IScalingTreeController {
         ERC721(_nftAddress).safeTransferFrom(
             msg.sender,
             address(this),
-            _tokenId
+            _tokenId,
+            abi.encode(true)
         );
 
         uint256 treeId = _addTree(_nftAddress, _tokenId);
@@ -82,7 +128,11 @@ contract ScalingTreeController is IScalingTreeController {
         uint256 _treeNumber,
         string memory _uri
     ) public override returns (uint256) {
-        uint256 tokenId = _treeNFT.safeMint(address(this), _uri);
+        uint256 tokenId = _treeNFT.safeMint(
+            address(this),
+            _uri,
+            abi.encode(true)
+        );
         uint256 treeId = _addTree(address(_treeNFT), tokenId);
 
         emit TreeAdded(msg.sender, address(_treeNFT), tokenId, _treeNumber);
@@ -108,16 +158,61 @@ contract ScalingTreeController is IScalingTreeController {
         return treeId;
     }
 
-    function transfer(
+    function approve(
+        address _to,
         address _nftAddress,
-        uint256 _tokenId,
-        address to
-    ) public override isTreeOwner(_nftAddress, _tokenId) {
-        require(to != address(0), "Cannot transfer to null address");
+        uint256 _tokenId
+    ) external override {
         uint256 treeId = getTreeId(_nftAddress, _tokenId);
-        _ownerOf[treeId] = to;
+        address owner = _ownerOf[treeId];
 
-        emit TreeTransferred(msg.sender, to, _nftAddress, _tokenId);
+        require(_to != owner, "Cannot approve to owner");
+        require(msg.sender == owner, "Must be called by owner");
+
+        _treeApprovals[treeId] = _to;
+
+        emit TreeApproved(msg.sender, _to, _nftAddress, _tokenId);
+    }
+
+    function setApprovalForAll(
+        address _operator,
+        bool _approved
+    ) external override {
+        require(msg.sender != _operator, "Cannot approve to caller");
+        _operatorApprovals[msg.sender][_operator] = _approved;
+        emit ApprovedForAll(msg.sender, _operator, _approved);
+    }
+
+    function transfer(
+        address _to,
+        address _nftAddress,
+        uint256 _tokenId
+    ) external override isTreeOwner(_nftAddress, _tokenId) {
+        _transferFrom(msg.sender, _to, _nftAddress, _tokenId);
+    }
+
+    function transferFrom(
+        address _from,
+        address _to,
+        address _nftAddress,
+        uint256 _tokenId
+    ) external override isApproved(_nftAddress, _tokenId, _from) {
+        _transferFrom(_from, _to, _nftAddress, _tokenId);
+    }
+
+    function _transferFrom(
+        address _from,
+        address _to,
+        address _nftAddress,
+        uint256 _tokenId
+    ) private {
+        require(_to != address(0), "Cannot transfer to null address");
+        uint256 treeId = getTreeId(_nftAddress, _tokenId);
+        _ownerOf[treeId] = _to;
+
+        delete _treeApprovals[treeId];
+
+        emit TreeTransferred(_from, _to, _nftAddress, _tokenId);
     }
 
     function withdraw(
@@ -133,6 +228,8 @@ contract ScalingTreeController is IScalingTreeController {
             msg.sender,
             _tokenId
         );
+
+        delete _treeApprovals[treeId];
 
         emit TreeWithdrew(msg.sender, address(_treeNFT), _tokenId);
 
@@ -179,6 +276,26 @@ contract ScalingTreeController is IScalingTreeController {
         return address(_auditorRegistry);
     }
 
+    function isApprovedForAll(
+        address owner,
+        address operator
+    ) public view virtual override returns (bool) {
+        return _operatorApprovals[owner][operator];
+    }
+
+    function getApproved(
+        address _nftAddress,
+        uint256 _tokenId
+    ) public view virtual override returns (address) {
+        uint256 treeId = getTreeId(_nftAddress, _tokenId);
+        require(
+            !checkTreeOwner(address(0), _nftAddress, _tokenId),
+            "Tree has no owner"
+        );
+
+        return _treeApprovals[treeId];
+    }
+
     function _addTree(
         address _nftAddress,
         uint256 _tokenId
@@ -198,12 +315,5 @@ contract ScalingTreeController is IScalingTreeController {
         }
 
         return treeId;
-    }
-
-    function _validateNFTContract(
-        address _nftAddress
-    ) private view returns (bool) {
-        ERC721(_nftAddress).tokenURI(0);
-        return true;
     }
 }
