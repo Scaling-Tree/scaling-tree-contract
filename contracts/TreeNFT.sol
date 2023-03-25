@@ -4,10 +4,9 @@ pragma solidity ^0.8.9;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
-contract Tree is ERC721, ERC721Enumerable, ERC721URIStorage, Ownable {
+contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage {
     using Counters for Counters.Counter;
 
     Counters.Counter private _tokenIdCounter;
@@ -15,14 +14,16 @@ contract Tree is ERC721, ERC721Enumerable, ERC721URIStorage, Ownable {
     constructor() ERC721("Tree", "TREE") {}
 
     function _baseURI() internal pure override returns (string memory) {
+        // TODO: update base uri
         return "https://0xwa.run";
     }
 
-    function safeMint(address to, string memory uri) public onlyOwner {
+    function safeMint(address to, string memory uri) public returns (uint256) {
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
+        return tokenId;
     }
 
     // The following functions are overrides required by Solidity.
