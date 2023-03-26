@@ -16,7 +16,7 @@ contract TreeNFT is ERC721, ERC721Enumerable, ERC721URIStorage, ITreeNFT {
 
     function _baseURI() internal pure override returns (string memory) {
         // TODO: update base uri
-        return "https://0xwa.run";
+        return "https://ipfs.io/ipfs/";
     }
 
     function safeMint(address to, string memory uri, bytes calldata data) public override returns (uint256) {

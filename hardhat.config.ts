@@ -35,6 +35,10 @@ const config: HardhatUserConfig = {
       url: `https://mainnet.optimism.io`,
       accounts: accountUtils.getAccounts(),
     },
+    goerli: {
+      url: process.env.GOERLI_URL,
+      accounts: accountUtils.getAccounts(),
+    },
   },
 };
 
