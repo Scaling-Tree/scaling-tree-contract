@@ -11,6 +11,10 @@ const config: HardhatUserConfig = {
     ],
   },
   networks: {
+    gnosis: {
+      url: `https://rpc.gnosis.gateway.fm`,
+      accounts: accountUtils.getAccounts(),
+    },
     gnosis_testnet: {
       url: `https://rpc.chiadochain.net`,
       accounts: accountUtils.getAccounts(),
