@@ -11,6 +11,14 @@ const config: HardhatUserConfig = {
     ],
   },
   networks: {
+    optimism: {
+      url: process.env.OPTIMISM_URL,
+      accounts: accountUtils.getAccounts(),
+    },
+    zkevm: {
+      url: "https://rpc.public.zkevm-test.net",
+      accounts: accountUtils.getAccounts(),
+    },
     gnosis: {
       url: `https://rpc.gnosis.gateway.fm`,
       accounts: accountUtils.getAccounts(),
